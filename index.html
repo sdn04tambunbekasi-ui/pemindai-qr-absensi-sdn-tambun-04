@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#176b45">
+  <title>Pemindai QR - SDN Tambun 04</title>
+  <script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+  <style>
+    :root {
+      color-scheme: light;
+      --green: #176b45;
+      --green-dark: #105236;
+      --bg: #f3f7f4;
+      --text: #17251d;
+      --muted: #607166;
+      --border: #d9e4dc;
+      --red-bg: #fff0ed;
+      --red: #a42d20;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 22px 14px 36px;
+      background: var(--bg);
+      color: var(--text);
+      font-family: Arial, Helvetica, sans-serif;
+    }
+    main {
+      width: min(100%, 620px);
+      margin: 0 auto;
+    }
+    header {
+      display: flex;
+      align-items: center;
+      gap: 13px;
+      margin: 4px 0 18px;
+    }
+    .logo {
+      width: 48px;
+      height: 48px;
+      display: grid;
+      place-items: center;
+      border-radius: 14px;
+      background: #e2f0e6;
+      color: var(--green);
+      font-size: 24px;
+      font-weight: 800;
+    }
+    h1 { margin: 0; font-size: 21px; }
+    header p { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
+    .panel {
+      background: #fff;
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 20px;
+      box-shadow: 0 5px 18px rgba(20, 50, 30, .05);
+    }
+    h2 { margin: 0 0 8px; font-size: 19px; }
+    .intro {
+      margin: 0 0 18px;
+      color: var(--muted);
+      line-height: 1.5;
+      font-size: 14px;
+    }
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-bottom: 15px;
+    }
+    button {
+      min-height: 46px;
+      border: 0;
+      border-radius: 11px;
+      padding: 0 17px;
+      font-size: 15px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    button:disabled { opacity: .55; cursor: not-allowed; }
+    #startButton { background: var(--green); color: white; }
+    #stopButton, #backButton { background: #edf2ee; color: #24352b; }
+    #reader {
+      width: 100%;
+      min-height: 220px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      background: #f8faf8;
+    }
+    #reader video {
+      width: 100% !important;
+      border-radius: 12px;
+    }
+    .message {
+      margin-top: 14px;
+      padding: 13px 14px;
+      border-radius: 12px;
+      background: #eef4f0;
+      color: #365342;
+      line-height: 1.5;
+      font-size: 14px;
+      overflow-wrap: anywhere;
+    }
+    .message.error { background: var(--red-bg); color: var(--red); }
+    .message.success { background: #e8f5ec; color: #176b45; }
+    .hint {
+      margin-top: 16px;
+      padding: 13px 14px;
+      border-radius: 12px;
+      background: #fff8dc;
+      color: #68551a;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+    .small { color: var(--muted); font-size: 12px; margin-top: 16px; line-height: 1.5; }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div class="logo">04</div>
+      <div>
+        <h1>SDN Tambun 04</h1>
+        <p>Pemindai QR Absensi Siswa</p>
+      </div>
+    </header>
+
+    <section class="panel">
+      <h2>Pindai Kartu Siswa</h2>
+      <p class="intro">Tekan tombol di bawah, izinkan kamera Chrome, lalu arahkan kamera belakang HP ke kode QR pada kartu siswa.</p>
+
+      <div class="actions">
+        <button id="startButton" type="button">Aktifkan Kamera</button>
+        <button id="stopButton" type="button" disabled>Matikan Kamera</button>
+        <button id="backButton" type="button">Kembali</button>
+      </div>
+
+      <div id="reader"></div>
+      <div id="message" class="message">Kamera belum aktif. Tekan “Aktifkan Kamera” untuk mulai.</div>
+
+      <div class="hint">
+        <strong>Catatan:</strong> Halaman ini hanya membaca kode QR. Data kehadiran tetap dikirim ke aplikasi absensi sekolah yang terbuka sebelumnya. Jangan gunakan Google Lens.
+      </div>
+      <p class="small">Jika kamera tidak muncul, pastikan halaman dibuka melalui alamat HTTPS dan izin kamera untuk situs GitHub Pages ini diizinkan pada Chrome.</p>
+    </section>
+  </main>
+
+  <script>
+    let scanner = null;
+    let scanning = false;
+    let scanSent = false;
+
+    const startButton = document.getElementById('startButton');
+    const stopButton = document.getElementById('stopButton');
+    const backButton = document.getElementById('backButton');
+    const messageBox = document.getElementById('message');
+
+    function showMessage(text, type) {
+      messageBox.className = 'message' + (type ? ' ' + type : '');
+      messageBox.textContent = text;
+    }
+
+    async function startScanner() {
+      if (scanning) return;
+
+      if (!window.Html5Qrcode) {
+        showMessage('Komponen pemindai belum termuat. Periksa koneksi internet, lalu muat ulang halaman.', 'error');
+        return;
+      }
+
+      if (!window.opener || window.opener.closed) {
+        showMessage('Halaman ini tidak terhubung dengan aplikasi absensi. Tutup halaman ini, lalu buka pemindai melalui tombol di menu Absensi QR aplikasi sekolah.', 'error');
+        return;
+      }
+
+      startButton.disabled = true;
+      startButton.textContent = 'Meminta izin kamera...';
+      showMessage('Chrome akan meminta izin kamera. Pilih Izinkan.');
+
+      try {
+        const cameras = await Html5Qrcode.getCameras();
+        if (!cameras || cameras.length === 0) {
+          throw new Error('Kamera tidak ditemukan pada perangkat ini.');
+        }
+
+        const backCamera = cameras.find(camera =>
+          /back|rear|environment|belakang/i.test(camera.label || '')
+        );
+        const selectedCamera = backCamera || cameras[cameras.length - 1];
+
+        scanner = new Html5Qrcode('reader');
+        await scanner.start(
+          selectedCamera.id,
+          {
+            fps: 10,
+            qrbox: function(viewfinderWidth, viewfinderHeight) {
+              const edge = Math.floor(Math.min(viewfinderWidth, viewfinderHeight) * 0.72);
+              return { width: edge, height: edge };
+            },
+            aspectRatio: 1.0
+          },
+          handleQrSuccess,
+          function() {
+            // Kesalahan pembacaan per frame diabaikan agar tampilan tidak berkedip.
+          }
+        );
+
+        scanning = true;
+        startButton.textContent = 'Kamera Aktif';
+        stopButton.disabled = false;
+        showMessage('Kamera aktif. Arahkan ke QR pada kartu siswa.', 'success');
+      } catch (error) {
+        scanning = false;
+        startButton.disabled = false;
+        startButton.textContent = 'Aktifkan Kamera';
+        stopButton.disabled = true;
+        const detail = error && error.message ? error.message : String(error || 'Tidak diketahui');
+        showMessage('Kamera gagal dibuka: ' + detail + '. Periksa izin kamera Chrome untuk situs ini.', 'error');
+        if (scanner) {
+          try { await scanner.clear(); } catch (e) {}
+          scanner = null;
+        }
+      }
+    }
+
+    async function handleQrSuccess(decodedText) {
+      if (scanSent) return;
+      scanSent = true;
+      showMessage('QR berhasil dibaca. Mengirim hasil ke aplikasi absensi...', 'success');
+
+      try {
+        if (scanner && scanning) {
+          await scanner.stop();
+          await scanner.clear();
+        }
+      } catch (e) {}
+
+      scanning = false;
+      startButton.disabled = true;
+      stopButton.disabled = true;
+
+      try {
+        window.opener.postMessage({
+          type: 'SDN04_QR_SCANNED',
+          value: String(decodedText || '').trim()
+        }, '*');
+
+        showMessage('QR sudah dikirim. Kembali ke tab aplikasi absensi untuk melihat hasilnya.', 'success');
+        window.setTimeout(function() {
+          window.close();
+        }, 900);
+      } catch (error) {
+        showMessage('QR terbaca, tetapi gagal mengirim hasil ke aplikasi. Tutup halaman ini dan coba lagi dari aplikasi absensi.', 'error');
+        scanSent = false;
+      }
+    }
+
+    async function stopScanner() {
+      if (scanner && scanning) {
+        try { await scanner.stop(); } catch (e) {}
+        try { await scanner.clear(); } catch (e) {}
+      }
+      scanner = null;
+      scanning = false;
+      scanSent = false;
+      startButton.disabled = false;
+      startButton.textContent = 'Aktifkan Kamera';
+      stopButton.disabled = true;
+      showMessage('Kamera dimatikan.');
+    }
+
+    startButton.addEventListener('click', startScanner);
+    stopButton.addEventListener('click', stopScanner);
+    backButton.addEventListener('click', function() {
+      if (window.opener && !window.opener.closed) {
+        window.close();
+      } else {
+        history.back();
+      }
+    });
+  </script>
+</body>
+</html>
